@@ -6,13 +6,7 @@ pluginManagement {
             if (localPropertiesFile.exists()) {
                 localPropertiesFile.inputStream().use { properties.load(it) }
             }
-            var sdkPath = properties.getProperty("flutter.sdk")
-            val junctionDir = file("C:/flutter")
-            if (junctionDir.exists() && (sdkPath == null || !file(sdkPath).exists() || !file("$sdkPath/packages/flutter_tools/gradle").exists())) {
-                sdkPath = "C:/flutter"
-                properties.setProperty("flutter.sdk", "C:\\flutter")
-                localPropertiesFile.outputStream().use { properties.store(it, null) }
-            }
+            val sdkPath = properties.getProperty("flutter.sdk")
             require(sdkPath != null && file(sdkPath).exists()) { "flutter.sdk not set in local.properties" }
             sdkPath
         }
@@ -28,8 +22,8 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    id("com.android.application") version "8.9.1" apply false
-    id("org.jetbrains.kotlin.android") version "2.1.0" apply false
+    id("com.android.application") version "8.11.1" apply false
+    id("org.jetbrains.kotlin.android") version "2.2.20" apply false
 }
 
 include(":app")
