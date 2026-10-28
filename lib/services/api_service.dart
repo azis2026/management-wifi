@@ -27,10 +27,15 @@ class ApiService {
           // Update base URL secara dinamis jika diubah saat runtime
           options.baseUrl = AppConfig.baseUrl;
 
+          // Kirim Supabase apikey header jika URL mengarah ke supabase
+          options.headers['apikey'] = 'sb_publishable_ekeKJ6zh745NjEmMKRj5pA_0x0XRp8m';
+
           // Tempel Authorization Header jika token tersedia
           final token = _jwtToken ?? await getStoredToken();
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
+          } else {
+            options.headers['Authorization'] = 'Bearer sb_publishable_ekeKJ6zh745NjEmMKRj5pA_0x0XRp8m';
           }
           return handler.next(options);
         },
