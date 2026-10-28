@@ -18,10 +18,13 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# Visual Studio Code & Local IDE settings
+.vscode/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
 
 # Flutter/Dart/Pub related
 **/doc/api/
@@ -33,6 +36,12 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Android Local & Generated Files
+**/android/local.properties
+**/android/.gradle/
+**/android/captures/
+**/android/gradle/wrapper/gradle-*.zip
+
 # Symbolication related
 app.*.symbols
 
@@ -43,3 +52,19 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Binaries, APK & Bundle output files
+*.apk
+*.aab
+*.keystore
+*.jks
+WiFi-Manager-Release.apk
+
+# Database & Cache Lokal
+*.db
+*.db-shm
+*.db-wal
+.codegraph/
+
+# Temp folders
+/tmp/

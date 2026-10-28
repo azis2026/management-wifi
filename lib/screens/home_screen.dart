@@ -18,8 +18,8 @@ import 'payment/payment_history_screen.dart';
 import 'bill/bill_list_screen.dart';
 import 'due_reminders/due_reminder_screen.dart';
 import 'receipt/receipt_preview_screen.dart';
-import '../services/supabase_service.dart';
-import 'auth/admin_login_screen.dart';
+import '../services/session_service.dart';
+import '../app.dart';
 
 class HomeScreen extends StatefulWidget {
   final Function(int)? onNavigateTab;
@@ -240,11 +240,63 @@ class _HomeScreenState extends State<HomeScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 10),
             child: InkWell(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const AdminLoginScreen()),
-                ).then((_) => setState(() {}));
+              onTap: () async {
+                final adminName = SessionService.instance.currentAdmin?.name ?? 'Admin';
+                final action = await showModalBottomSheet<String>(
+                  context: context,
+                  shape: const RoundedRectangleBorder(
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  builder: (ctx) => Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const CircleAvatar(
+                              backgroundColor: AppTheme.navyPrimary,
+                              child: Icon(Icons.person, color: Colors.white),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    adminName,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                  ),
+                                  Text(
+                                    SessionService.instance.currentAdmin?.email ?? 'Terhubung ke REST API',
+                                    style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Divider(height: 28),
+                        ListTile(
+                          leading: const Icon(Icons.logout, color: Colors.red),
+                          title: const Text('Keluar (Logout)', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                          onTap: () => Navigator.pop(ctx, 'logout'),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+
+                if (action == 'logout') {
+                  await SessionService.instance.logout();
+                  if (context.mounted) {
+                    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                      MaterialPageRoute(builder: (_) => const AuthGate()),
+                      (route) => false,
+                    );
+                  }
+                }
               },
               borderRadius: BorderRadius.circular(16),
               child: Container(
@@ -253,21 +305,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: Colors.white.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: SupabaseService.instance.isOnline ? Colors.greenAccent : Colors.white30,
+                    color: Colors.greenAccent,
                     width: 1,
                   ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      SupabaseService.instance.isOnline ? Icons.cloud_done : Icons.cloud_off,
+                    const Icon(
+                      Icons.cloud_done,
                       size: 14,
-                      color: SupabaseService.instance.isOnline ? Colors.greenAccent : Colors.white70,
+                      color: Colors.greenAccent,
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      SupabaseService.instance.currentAdmin.name.split(' ').first,
+                      (SessionService.instance.currentAdmin?.name ?? 'Admin').split(' ').first,
                       style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                   ],

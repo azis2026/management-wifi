@@ -10,9 +10,9 @@ class SupabaseService extends ChangeNotifier {
   static final SupabaseService instance = SupabaseService._internal();
   SupabaseService._internal();
 
-  // Supabase Configuration Keys (Default demo or custom user keys)
-  static const String defaultUrl = 'https://your-project.supabase.co';
-  static const String defaultAnonKey = 'your-anon-key';
+  // Supabase Configuration Keys (Default production cloud)
+  static const String defaultUrl = 'https://fgtxomyssbrybgentfgs.supabase.co';
+  static const String defaultAnonKey = 'sb_publishable_ekeKJ6zh745NjEmMKRj5pA_0x0XRp8m';
 
   String _supabaseUrl = '';
   String _supabaseAnonKey = '';
@@ -64,6 +64,9 @@ class SupabaseService extends ChangeNotifier {
       if (savedUrl.isNotEmpty && savedKey.isNotEmpty) {
         _supabaseUrl = savedUrl;
         _supabaseAnonKey = savedKey;
+      } else {
+        _supabaseUrl = defaultUrl;
+        _supabaseAnonKey = defaultAnonKey;
       }
 
       // Inisialisasi Supabase SDK jika sudah dikonfigurasi

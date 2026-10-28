@@ -8,7 +8,9 @@ import '../backup/backup_restore_screen.dart';
 import '../settings/settings_screen.dart';
 import '../settings/cloud_sync_screen.dart';
 import '../admin/admin_management_screen.dart';
-import '../../services/supabase_service.dart';
+import 'documentation_screen.dart';
+import '../../services/session_service.dart';
+import '../../app.dart';
 
 class MoreMenuScreen extends StatelessWidget {
   const MoreMenuScreen({super.key});
@@ -130,6 +132,15 @@ class MoreMenuScreen extends StatelessWidget {
                   subtitle: 'Amankan data aplikasi atau cadangkan ke file',
                   color: const Color(0xFF0284C7),
                   destination: const BackupRestoreScreen(),
+                  showDivider: true,
+                ),
+                _buildMenuRow(
+                  context: context,
+                  icon: Icons.menu_book_rounded,
+                  title: 'Buku Panduan & Dokumentasi',
+                  subtitle: 'Petunjuk lengkap penggunaan sistem & wewenang admin',
+                  color: const Color(0xFF4F46E5),
+                  destination: const DocumentationScreen(),
                   showDivider: false,
                 ),
               ],
@@ -140,12 +151,13 @@ class MoreMenuScreen extends StatelessWidget {
           // Logout Button
           OutlinedButton.icon(
             onPressed: () async {
+              final adminName = SessionService.instance.currentAdmin?.name ?? 'Admin';
               final confirm = await showDialog<bool>(
                 context: context,
                 builder: (ctx) => AlertDialog(
                   title: const Text('Keluar Akun Admin?'),
                   content: Text(
-                    'Anda saat ini masuk sebagai ${SupabaseService.instance.currentAdmin.name}.\nApakah Anda yakin ingin keluar?',
+                    'Anda saat ini masuk sebagai $adminName.\nApakah Anda yakin ingin keluar dari sesi API?',
                   ),
                   actions: [
                     TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
@@ -159,7 +171,14 @@ class MoreMenuScreen extends StatelessWidget {
               );
 
               if (confirm == true) {
-                await SupabaseService.instance.logout();
+                await SessionService.instance.logout();
+                if (context.mounted) {
+                  // Kembali langsung ke AuthGate / Halaman Login dan bersihkan stack navigasi
+                  Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const AuthGate()),
+                    (route) => false,
+                  );
+                }
               }
             },
             icon: const Icon(Icons.logout_rounded, color: Colors.red),

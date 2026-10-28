@@ -1,6 +1,6 @@
 {
-    "name": "wifi_manager",
-    "short_name": "wifi_manager",
+    "name": "Wifi Management",
+    "short_name": "Wifi Management",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

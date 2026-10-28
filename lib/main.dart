@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'services/supabase_service.dart';
+import 'services/session_service.dart';
 import 'app.dart';
 
 void main() async {
@@ -16,11 +16,11 @@ void main() async {
     ),
   );
 
-  // Inisialisasi status login & sesi aplikasi
+  // Inisialisasi sesi login API murni (tanpa SQLite)
   try {
-    await SupabaseService.instance.initialize();
+    await SessionService.instance.initialize();
   } catch (e) {
-    debugPrint('Service initialization notice: $e');
+    debugPrint('Session initialization notice: $e');
   }
 
   runApp(const WiFiManagerApp());

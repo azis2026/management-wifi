@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'utils/app_theme.dart';
-import 'services/supabase_service.dart';
+import 'services/session_service.dart';
 import 'screens/main_navigation_screen.dart';
 import 'screens/auth/admin_login_screen.dart';
 
@@ -11,7 +11,7 @@ class WiFiManagerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'WiFi Manager',
+      title: 'Wifi Management',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       localizationsDelegates: const [
@@ -35,9 +35,9 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: SupabaseService.instance,
+      animation: SessionService.instance,
       builder: (context, _) {
-        if (SupabaseService.instance.isLoggedIn) {
+        if (SessionService.instance.isLoggedIn) {
           return const MainNavigationScreen();
         }
         return const AdminLoginScreen(isInitialGate: true);

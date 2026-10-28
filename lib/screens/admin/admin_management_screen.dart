@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import '../../services/supabase_service.dart';
+import '../../services/session_service.dart';
 import '../../utils/app_theme.dart';
-import '../auth/admin_login_screen.dart';
+import '../../models/admin_model.dart';
+import '../../app.dart';
 
 class AdminManagementScreen extends StatefulWidget {
   const AdminManagementScreen({super.key});
@@ -11,26 +12,27 @@ class AdminManagementScreen extends StatefulWidget {
 }
 
 class _AdminManagementScreenState extends State<AdminManagementScreen> {
+  final List<AdminModel> _admins = AdminModel.defaultAdmins;
+
   @override
   Widget build(BuildContext context) {
-    final admins = SupabaseService.instance.admins;
-    final currentAdmin = SupabaseService.instance.currentAdmin;
+    final currentAdmin = SessionService.instance.currentAdmin;
 
     return Scaffold(
       backgroundColor: AppTheme.bgLight,
       appBar: AppBar(
-        title: const Text('Kelola 4 Akun Admin'),
+        title: const Text('Akun Admin Aktif'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.swap_horiz_rounded),
-            tooltip: 'Ganti Admin Aktif',
+            icon: const Icon(Icons.logout_rounded, color: Colors.red),
+            tooltip: 'Keluar (Logout)',
             onPressed: () async {
-              final result = await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AdminLoginScreen()),
-              );
-              if (result == true) {
-                setState(() {});
+              await SessionService.instance.logout();
+              if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const AuthGate()),
+                  (route) => false,
+                );
               }
             },
           ),
@@ -62,14 +64,14 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Struktur Multi Admin (4 Admin)',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppTheme.textPrimary),
+                      Text(
+                        currentAdmin != null ? 'Masuk sebagai: ${currentAdmin.name}' : 'Multi Admin System',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppTheme.textPrimary),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Setiap admin memiliki tanggung jawab khusus dalam sistem.',
-                        style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                        currentAdmin != null ? 'Role: ${currentAdmin.role} • ${currentAdmin.email}' : 'Terhubung ke Backend REST API',
+                        style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
                       ),
                     ],
                   ),
@@ -80,7 +82,7 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
           const SizedBox(height: 20),
 
           const Text(
-            'DAFTAR 4 ADMIN & WEWENANG',
+            'DAFTAR AKUN ADMIN & WEWENANG',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,
@@ -90,8 +92,8 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
           ),
           const SizedBox(height: 12),
 
-          ...admins.map((admin) {
-            final isCurrent = admin.id == currentAdmin.id;
+          ..._admins.map((admin) {
+            final isCurrent = currentAdmin != null && admin.email.toLowerCase() == currentAdmin.email.toLowerCase();
             final color = _getRoleColor(admin.role);
             final duties = _getRoleDuties(admin.role);
 
@@ -129,16 +131,16 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                                   ),
                                   if (isCurrent) ...[
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 6),
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: Colors.green,
+                                        color: Colors.green.withOpacity(0.15),
                                         borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: const Text(
-                                        'Sedang Aktif',
-                                        style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                        'Aktif',
+                                        style: TextStyle(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold),
                                       ),
                                     ),
                                   ],
@@ -147,7 +149,7 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                               const SizedBox(height: 2),
                               Text(
                                 admin.email,
-                                style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
                               ),
                             ],
                           ),
@@ -170,9 +172,9 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                     const SizedBox(height: 12),
 
                     // Info Wewenang
-                    Text(
+                    const Text(
                       'Wewenang & Tugas:',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
                     ),
                     const SizedBox(height: 4),
                     ...duties.map(
@@ -191,29 +193,6 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                           ],
                         ),
                       ),
-                    ),
-
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        if (!isCurrent)
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              await SupabaseService.instance.setActiveAdmin(admin);
-                              setState(() {});
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Beralih ke ${admin.name}')),
-                              );
-                            },
-                            icon: const Icon(Icons.login, size: 16),
-                            label: const Text('Beralih ke Admin Ini'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppTheme.navyPrimary,
-                              side: const BorderSide(color: AppTheme.navyPrimary),
-                            ),
-                          ),
-                      ],
                     ),
                   ],
                 ),
