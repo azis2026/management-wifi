@@ -34,6 +34,8 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+!/build/web/
+!/build/web/**
 /coverage/
 
 # Android Local & Generated Files
