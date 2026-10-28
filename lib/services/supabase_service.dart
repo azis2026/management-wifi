@@ -12,7 +12,7 @@ class SupabaseService extends ChangeNotifier {
 
   // Supabase Configuration Keys (Default production cloud)
   static const String defaultUrl = 'https://fgtxomyssbrybgentfgs.supabase.co';
-  static const String defaultAnonKey = 'sb_publishable_ekeKJ6zh745NjEmMKRj5pA_0x0XRp8m';
+  static const String defaultAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZndHhvbXlzc2JyeWJnZW50ZmdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxODY4MzcsImV4cCI6MjEwODc2MjgzN30.74tAMAfCpsUfsnVj8KlNl4PfIrdJ52vb4EjAi9OqDGw';
 
   String _supabaseUrl = '';
   String _supabaseAnonKey = '';

@@ -28,14 +28,14 @@ class ApiService {
           options.baseUrl = AppConfig.baseUrl;
 
           // Kirim Supabase apikey header jika URL mengarah ke supabase
-          options.headers['apikey'] = 'sb_publishable_ekeKJ6zh745NjEmMKRj5pA_0x0XRp8m';
+          options.headers['apikey'] = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZndHhvbXlzc2JyeWJnZW50ZmdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxODY4MzcsImV4cCI6MjEwODc2MjgzN30.74tAMAfCpsUfsnVj8KlNl4PfIrdJ52vb4EjAi9OqDGw';
 
           // Tempel Authorization Header jika token tersedia
           final token = _jwtToken ?? await getStoredToken();
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
           } else {
-            options.headers['Authorization'] = 'Bearer sb_publishable_ekeKJ6zh745NjEmMKRj5pA_0x0XRp8m';
+            options.headers['Authorization'] = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZndHhvbXlzc2JyeWJnZW50ZmdzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMxODY4MzcsImV4cCI6MjEwODc2MjgzN30.74tAMAfCpsUfsnVj8KlNl4PfIrdJ52vb4EjAi9OqDGw';
           }
           return handler.next(options);
         },

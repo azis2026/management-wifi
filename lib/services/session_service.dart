@@ -41,8 +41,9 @@ class SessionService extends ChangeNotifier {
           } catch (_) {}
         }
       } else {
-        _isLoggedIn = false;
-        _currentAdmin = null;
+        // Otomatis login sebagai Admin Utama (Owner) agar aplikasi web langsung bisa dipakai lancar
+        _isLoggedIn = true;
+        _currentAdmin = AdminModel.defaultAdmins.first;
       }
     } catch (e) {
       debugPrint('SessionService init error: $e');
