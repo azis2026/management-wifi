@@ -41,6 +41,20 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
-  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    // Bypass Cloudflare / Browser caching by appending build timestamp
+    window._flutter = {
+      buildConfig: {
+        builds: [
+          {
+            compileTarget: "dart2js",
+            renderer: "canvaskit",
+            mainJsPath: "main.dart.js?v=" + new Date().getTime()
+          }
+        ]
+      }
+    };
+  </script>
+  <script src="flutter_bootstrap.js?v=2" async></script>
 </body>
 </html>
