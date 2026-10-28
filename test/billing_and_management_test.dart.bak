@@ -1,0 +1,585 @@
+import 'dart:io';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:excel/excel.dart';
+
+import 'package:wifi_manager/database/database_helper.dart';
+import 'package:wifi_manager/models/customer_model.dart';
+import 'package:wifi_manager/models/package_model.dart';
+import 'package:wifi_manager/models/bill_model.dart';
+import 'package:wifi_manager/models/payment_model.dart';
+import 'package:wifi_manager/repositories/customer_repository.dart';
+import 'package:wifi_manager/repositories/package_repository.dart';
+import 'package:wifi_manager/repositories/bill_repository.dart';
+import 'package:wifi_manager/repositories/payment_repository.dart';
+import 'package:wifi_manager/utils/billing_calculator.dart';
+import 'package:wifi_manager/utils/excel_exporter.dart';
+
+void main() {
+  setUpAll(() async {
+    await initializeDateFormatting('id_ID', null);
+    // Initialize FFI for SQFlite in tests
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
+
+  group('Kriteria Pengujian Sistem Manajemen Pelanggan ISP (Kriteria 1 - 10)', () {
+    late DatabaseHelper dbHelper;
+    late CustomerRepository customerRepo;
+    late PackageRepository packageRepo;
+    late BillRepository billRepo;
+    late PaymentRepository paymentRepo;
+
+    setUp(() async {
+      dbHelper = DatabaseHelper();
+      // Ensure in-memory or fresh DB for tests
+      final db = await openDatabase(
+        inMemoryDatabasePath,
+        version: 3,
+        onCreate: (db, version) async {
+          // Create tables
+          await db.execute('''
+            CREATE TABLE packages (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              speed TEXT NOT NULL,
+              price REAL NOT NULL,
+              description TEXT,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+          ''');
+
+          await db.execute('''
+            CREATE TABLE customers (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              code TEXT NOT NULL UNIQUE,
+              name TEXT NOT NULL,
+              phone TEXT NOT NULL,
+              address TEXT NOT NULL,
+              package_id INTEGER NOT NULL,
+              installation_date TEXT NOT NULL,
+              start_date TEXT,
+              installation_fee REAL DEFAULT 0,
+              due_date_day INTEGER NOT NULL DEFAULT 10,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              notes TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY (package_id) REFERENCES packages (id)
+            )
+          ''');
+
+          await db.execute('''
+            CREATE TABLE bills (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              bill_number TEXT NOT NULL UNIQUE,
+              customer_id INTEGER NOT NULL,
+              package_id INTEGER NOT NULL,
+              period_month INTEGER NOT NULL,
+              period_year INTEGER NOT NULL,
+              period_start TEXT,
+              period_end TEXT,
+              installation_fee REAL DEFAULT 0,
+              subscription_fee REAL DEFAULT 0,
+              additional_fee REAL DEFAULT 0,
+              discount REAL DEFAULT 0,
+              is_first_bill INTEGER DEFAULT 0,
+              amount REAL NOT NULL,
+              paid_amount REAL NOT NULL DEFAULT 0,
+              remaining_amount REAL NOT NULL,
+              due_date TEXT NOT NULL,
+              status TEXT NOT NULL DEFAULT 'unpaid',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              FOREIGN KEY (customer_id) REFERENCES customers (id),
+              FOREIGN KEY (package_id) REFERENCES packages (id)
+            )
+          ''');
+
+          await db.execute('''
+            CREATE TABLE payments (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              receipt_number TEXT NOT NULL UNIQUE,
+              bill_id INTEGER NOT NULL,
+              payment_date TEXT NOT NULL,
+              amount_paid REAL NOT NULL,
+              payment_method TEXT NOT NULL DEFAULT 'cash',
+              notes TEXT,
+              status TEXT NOT NULL DEFAULT 'valid',
+              created_at TEXT NOT NULL,
+              FOREIGN KEY (bill_id) REFERENCES bills (id)
+            )
+          ''');
+
+          // Seed fixed master packages required by prompt Section 2
+          final now = DateTime.now().toIso8601String();
+          final seedPackages = [
+            {'name': 'Paket Hemat', 'speed': '6 Mbps', 'price': 60000.0, 'description': 'Master Paket Hemat 6 Mbps'},
+            {'name': 'Paket Hemat', 'speed': '11 Mbps', 'price': 85000.0, 'description': 'Master Paket Hemat 11 Mbps'},
+            {'name': 'Paket Keluar', 'speed': '20 Mbps', 'price': 111000.0, 'description': 'Master Paket Keluar 20 Mbps'},
+            {'name': 'Paket 30 Mbps', 'speed': '30 Mbps', 'price': 150000.0, 'description': 'Master Paket 30 Mbps'},
+            {'name': 'Paket 50 Mbps', 'speed': '50 Mbps', 'price': 185000.0, 'description': 'Master Paket 50 Mbps'},
+            {'name': 'Paket 100 Mbps', 'speed': '100 Mbps', 'price': 226000.0, 'description': 'Master Paket 100 Mbps'},
+          ];
+          for (final pkg in seedPackages) {
+            await db.insert('packages', {
+              ...pkg,
+              'is_active': 1,
+              'created_at': now,
+              'updated_at': now,
+            });
+          }
+        },
+      );
+
+      // Inject test DB into helper
+      dbHelper.setDatabaseForTesting(db);
+
+      customerRepo = CustomerRepository(dbHelper);
+      packageRepo = PackageRepository(dbHelper);
+      billRepo = BillRepository(dbHelper);
+      paymentRepo = PaymentRepository(dbHelper);
+    });
+
+    tearDown(() async {
+      await dbHelper.close();
+    });
+
+    // -------------------------------------------------------------------------
+    // Kriteria 1, 2, 3: Tambah Pelanggan, Tagihan Pertama Manual, Konfirmasi Bayar
+    // -------------------------------------------------------------------------
+    test('Kriteria 1, 2, 3: Tambah pelanggan Paket Hemat Rp85.000 + Biaya Pasang Rp250.000, Tagihan Pertama Rp335.000, Konfirmasi Bayar', () async {
+      final packages = await packageRepo.getAllPackages();
+      expect(packages.length, 6);
+
+      // Cari Paket Hemat 11 Mbps seharga 85.000
+      final paket85k = packages.firstWhere((p) => p.price == 85000.0 && p.speed == '11 Mbps');
+      expect(paket85k.name, 'Paket Hemat');
+      expect(paket85k.price, 85000.0);
+
+      // Perhitungan biaya harian: 85.000 / 30 = 2833.3333333333335
+      expect(paket85k.dailyPrice, closeTo(2833.33, 0.01));
+
+      // 1. Data Pelanggan Baru
+      final customer = CustomerModel(
+        code: 'CUST-0001',
+        name: 'Budi Santoso',
+        phone: '081234567890',
+        address: 'Jl. Merdeka No. 45, Jakarta',
+        packageId: paket85k.id!,
+        installationDate: '2026-10-01',
+        startDate: '2026-10-01',
+        installationFee: 250000.0, // Custom Biaya Pemasangan Rp250.000
+        dueDateDay: 10,
+        notes: 'Pemasangan baru ruko',
+      );
+
+      // 2. Input Tagihan Pertama Manual: Rp250.000 (pasang) + Rp85.000 (langganan) = Rp335.000
+      final firstBillTotal = BillingCalculator.calculateFirstBillTotal(
+        installationFee: 250000.0,
+        subscriptionFee: 85000.0,
+        additionalFee: 0,
+        discount: 0,
+      );
+      expect(firstBillTotal, 335000.0);
+
+      // Simpan Customer & Tagihan Pertama dalam 1 transaksi atomik
+      final customerId = await customerRepo.createCustomerWithFirstBill(
+        customer: customer,
+        firstBillAmount: firstBillTotal,
+        installationFee: 250000.0,
+        subscriptionFee: 85000.0,
+        additionalFee: 0.0,
+        discount: 0.0,
+        periodStart: '2026-10-01',
+        periodEnd: '2026-10-31',
+        dueDate: '2026-10-10',
+        initialPaidAmount: 335000.0, // 3. Konfirmasi pembayaran lunas saat pendaftaran
+        paymentMethod: 'cash',
+        paymentNotes: 'Pembayaran awal tunai lunas',
+      );
+
+      expect(customerId, isPositive);
+
+      // Verifikasi tagihan pertama di database
+      final bills = await billRepo.getBillsByCustomer(customerId);
+      expect(bills.length, 1);
+
+      final bill1 = bills.first;
+      expect(bill1.amount, 335000.0);
+      expect(bill1.paidAmount, 335000.0);
+      expect(bill1.remainingAmount, 0.0);
+      expect(bill1.status, BillStatus.paid);
+      expect(bill1.isPaid, true);
+      expect(bill1.isFirstBill, true);
+      expect(bill1.installationFee, 250000.0);
+      expect(bill1.subscriptionFee, 85000.0);
+
+      // Verifikasi riwayat pembayaran
+      final payments = await paymentRepo.getPaymentsByBill(bill1.id!);
+      expect(payments.length, 1);
+      expect(payments.first.amountPaid, 335000.0);
+      expect(payments.first.notes, 'Pembayaran awal tunai lunas');
+    });
+
+    // -------------------------------------------------------------------------
+    // Kriteria 4 & 5: Tagihan Otomatis Periode Berikutnya & Anti Duplikasi
+    // -------------------------------------------------------------------------
+    test('Kriteria 4 & 5: Tagihan otomatis periode berikutnya Rp85.000 tanpa biaya pasang, dan cegah duplikasi', () async {
+      final paket85k = (await packageRepo.getAllPackages()).firstWhere((p) => p.price == 85000.0);
+
+      final customer = CustomerModel(
+        code: 'CUST-0002',
+        name: 'Siti Rahma',
+        phone: '081298765432',
+        address: 'Jl. Sudirman No. 12',
+        packageId: paket85k.id!,
+        installationDate: '2026-09-01',
+        startDate: '2026-09-01',
+        installationFee: 250000.0,
+        dueDateDay: 10,
+      );
+
+      final customerId = await customerRepo.createCustomerWithFirstBill(
+        customer: customer,
+        firstBillAmount: 335000.0,
+        installationFee: 250000.0,
+        subscriptionFee: 85000.0,
+        periodStart: '2026-09-01',
+        periodEnd: '2026-10-01',
+        dueDate: '2026-09-10',
+        initialPaidAmount: 335000.0,
+      );
+
+      // 4. Jalankan generate tagihan otomatis untuk bulan berikutnya (Oktober 2026)
+      final generatedCount = await billRepo.autoGenerateRecurringBills(
+        targetMonth: 10,
+        targetYear: 2026,
+      );
+
+      expect(generatedCount, 1);
+
+      final bills = await billRepo.getBillsByCustomer(customerId);
+      expect(bills.length, 2);
+
+      // Tagihan bulan kedua (rutin)
+      final bill2 = bills.firstWhere((b) => b.periodMonth == 10 && b.periodYear == 2026);
+      expect(bill2.amount, 85000.0); // Hanya harga paket bulanan!
+      expect(bill2.installationFee, 0.0); // Biaya pemasangan TIDAK ikut ditagihkan!
+      expect(bill2.isFirstBill, false);
+      expect(bill2.subscriptionFee, 85000.0);
+      expect(bill2.status, BillStatus.unpaid);
+
+      // 5. Jalankan ulang auto generate untuk periode yang sama -> Harus 0 (Anti duplikasi)
+      final duplicateAttempt = await billRepo.autoGenerateRecurringBills(
+        targetMonth: 10,
+        targetYear: 2026,
+      );
+      expect(duplicateAttempt, 0);
+
+      final billsAfter = await billRepo.getBillsByCustomer(customerId);
+      expect(billsAfter.length, 2); // Tetap 2, tidak ada duplikat
+    });
+
+    // -------------------------------------------------------------------------
+    // Kriteria 6: Pencarian Pelanggan Berdasarkan ID dan Nama (Partial & Case-Insensitive)
+    // -------------------------------------------------------------------------
+    test('Kriteria 6: Pencarian pelanggan ID & Nama (case-insensitive & partial)', () async {
+      final pkg = (await packageRepo.getAllPackages()).first;
+
+      await customerRepo.insertCustomer(CustomerModel(
+        code: 'CUST-0088',
+        name: 'Hendra Gunawan',
+        phone: '0811111111',
+        address: 'Komplek Melati A1',
+        packageId: pkg.id!,
+        installationDate: '2026-01-01',
+        startDate: '2026-01-01',
+      ));
+
+      await customerRepo.insertCustomer(CustomerModel(
+        code: 'CUST-0099',
+        name: 'Gunawan Wibisono',
+        phone: '0822222222',
+        address: 'Komplek Mawar B2',
+        packageId: pkg.id!,
+        installationDate: '2026-02-01',
+        startDate: '2026-02-01',
+      ));
+
+      // Cari berdasarkan ID tepat dan parsial
+      final searchIdExact = await customerRepo.searchCustomers(query: 'CUST-0088', searchType: CustomerSearchType.id);
+      expect(searchIdExact.length, 1);
+      expect(searchIdExact.first.name, 'Hendra Gunawan');
+
+      final searchIdLower = await customerRepo.searchCustomers(query: 'cust-00', searchType: CustomerSearchType.id);
+      expect(searchIdLower.length, 2);
+
+      // Cari berdasarkan Nama parsial case-insensitive "guna"
+      final searchName = await customerRepo.searchCustomers(query: 'guna', searchType: CustomerSearchType.name);
+      expect(searchName.length, 2);
+
+      // Cari nama spesifik "Hendra"
+      final searchHendra = await customerRepo.searchCustomers(query: 'hendra', searchType: CustomerSearchType.name);
+      expect(searchHendra.length, 1);
+      expect(searchHendra.first.code, 'CUST-0088');
+
+      // Cari yang tidak ditemukan
+      final notFound = await customerRepo.searchCustomers(query: 'ZzzNonExistent');
+      expect(notFound.isEmpty, true);
+    });
+
+    // -------------------------------------------------------------------------
+    // Kriteria 7: Ekspor Excel (.xlsx) dengan 24 Kolom Lengkap
+    // -------------------------------------------------------------------------
+    test('Kriteria 7: Ekspor Data ke Excel (.xlsx) memuat 24 kolom akurat', () async {
+      final paket111k = (await packageRepo.getAllPackages()).firstWhere((p) => p.price == 111000.0);
+
+      final customer = CustomerModel(
+        code: 'CUST-0077',
+        name: 'Dewi Lestari',
+        phone: '085566778899',
+        address: 'Jalan Anggrek No. 10',
+        packageId: paket111k.id!,
+        installationDate: '2026-08-01',
+        startDate: '2026-08-01',
+        installationFee: 150000.0,
+        notes: 'Catatan VIP',
+      );
+
+      final customerId = await customerRepo.createCustomerWithFirstBill(
+        customer: customer,
+        firstBillAmount: 261000.0, // 150k + 111k
+        installationFee: 150000.0,
+        subscriptionFee: 111000.0,
+        periodStart: '2026-08-01',
+        periodEnd: '2026-08-31',
+        dueDate: '2026-08-10',
+        initialPaidAmount: 261000.0,
+      );
+
+      // Ambil data detail lengkap untuk ekspor
+      final exportDataList = await customerRepo.getCustomerComprehensiveDetails();
+      expect(exportDataList.isNotEmpty, true);
+
+      final exportedCustomer = exportDataList.firstWhere((d) => d['customer_id'] == customerId);
+
+      // Generate file Excel bytes
+      final excelBytes = ExcelExporter.generateCustomerExcelFile(exportDataList);
+      expect(excelBytes.isNotEmpty, true);
+
+      // Buka dan verifikasi Excel bytes
+      final excel = Excel.decodeBytes(excelBytes);
+      final sheetName = excel.tables.keys.first;
+      final sheet = excel.tables[sheetName]!;
+
+      // 1. Verifikasi 24 Header Kolom
+      final expectedHeaders = [
+        'ID Pelanggan',
+        'Nama Lengkap',
+        'Nomor Telepon',
+        'Alamat Lengkap',
+        'Nama Paket',
+        'Kecepatan Internet',
+        'Harga Paket Bulanan',
+        'Biaya per Hari',
+        'Tanggal Pemasangan',
+        'Tanggal Mulai Berlangganan',
+        'Tanggal Berakhir Periode Aktif',
+        'Total Hari Berlangganan',
+        'Sisa Hari Aktif',
+        'Biaya Pemasangan Awal',
+        'Nominal Tagihan Pertama',
+        'Total Pembayaran Pertama',
+        'Total Tagihan',
+        'Total Pembayaran Diterima',
+        'Sisa Tunggakan',
+        'Tanggal Pembayaran Terakhir',
+        'Jatuh Tempo Berikutnya',
+        'Status Pelanggan',
+        'Status Pembayaran',
+        'Catatan Admin',
+      ];
+
+      expect(expectedHeaders.length, 24);
+
+      final headerRow = sheet.row(0);
+      expect(headerRow.length, 24);
+
+      for (int i = 0; i < 24; i++) {
+        final cellValue = headerRow[i]?.value.toString();
+        expect(cellValue, contains(expectedHeaders[i]));
+      }
+
+      // 2. Verifikasi Data Baris Pelanggan Dewi Lestari
+      final dataRow = sheet.row(1);
+      expect(dataRow[0]?.value.toString(), 'CUST-0077');
+      expect(dataRow[1]?.value.toString(), 'Dewi Lestari');
+      expect(dataRow[4]?.value.toString(), 'Paket Keluar');
+      expect(dataRow[5]?.value.toString(), '20 Mbps');
+      expect(dataRow[6]?.value.toString(), '111000');
+      expect(dataRow[13]?.value.toString(), '150000'); // Biaya pemasangan awal
+      expect(dataRow[14]?.value.toString(), '261000'); // Nominal tagihan pertama
+      expect(dataRow[15]?.value.toString(), '261000'); // Total pembayaran pertama
+    });
+
+    // -------------------------------------------------------------------------
+    // Kriteria 8: Uji Bayar Sebagian, Terlambat, Ganti Paket, dan Nonaktif
+    // -------------------------------------------------------------------------
+    test('Kriteria 8: Bayar sebagian, status terlambat, ganti paket, dan status non-aktif', () async {
+      final packages = await packageRepo.getAllPackages();
+      final pkg60k = packages.firstWhere((p) => p.price == 60000.0);
+      final pkg150k = packages.firstWhere((p) => p.price == 150000.0);
+
+      // Pelanggan dengan tagihan jatuh tempo lampau (Overdue / Terlambat)
+      final cust = CustomerModel(
+        code: 'CUST-0055',
+        name: 'Rudi Hartono',
+        phone: '081333444555',
+        address: 'Jl. Pemuda No. 1',
+        packageId: pkg60k.id!,
+        installationDate: '2026-08-01',
+        startDate: '2026-08-01',
+      );
+
+      final custId = await customerRepo.createCustomerWithFirstBill(
+        customer: cust,
+        firstBillAmount: 60000.0,
+        installationFee: 0,
+        subscriptionFee: 60000.0,
+        dueDate: '2026-08-10', // Tanggal jatuh tempo di masa lalu
+        initialPaidAmount: 20000.0, // Bayar sebagian (Rp20.000 dari Rp60.000)
+      );
+
+      // Cek status tagihan: Harus 'partial'
+      var bills = await billRepo.getBillsByCustomer(custId);
+      var bill = bills.first;
+      expect(bill.status, BillStatus.partial);
+      expect(bill.paidAmount, 20000.0);
+      expect(bill.remainingAmount, 40000.0);
+      expect(bill.isPartial, true);
+
+      // Update status tagihan jatuh tempo ke overdue jika tanggal sekarang > dueDate
+      await billRepo.updateOverdueBills();
+      bills = await billRepo.getBillsByCustomer(custId);
+      bill = bills.first;
+      expect(bill.status, BillStatus.overdue);
+      expect(bill.isOverdue, true);
+
+      // Ganti Paket Pelanggan ke Paket 30 Mbps (Rp150.000)
+      await customerRepo.updateCustomerPackage(custId, pkg150k.id!);
+      final updatedCust = await customerRepo.getCustomerById(custId);
+      expect(updatedCust!.packageId, pkg150k.id!);
+      expect(updatedCust.packageName, 'Paket 30 Mbps');
+
+      // Tagihan periode baru berikutnya harus mengikuti harga paket baru (Rp150.000)
+      await billRepo.autoGenerateRecurringBills(
+        targetMonth: 11,
+        targetYear: 2026,
+      );
+      final newPeriodBill = (await billRepo.getBillsByCustomer(custId)).firstWhere(
+        (b) => b.periodMonth == 11 && b.periodYear == 2026,
+      );
+      expect(newPeriodBill.amount, 150000.0);
+      expect(newPeriodBill.packageId, pkg150k.id!);
+
+      // Ubah status pelanggan jadi Tidak Aktif
+      await customerRepo.toggleCustomerStatus(custId, false);
+      final inactiveCust = await customerRepo.getCustomerById(custId);
+      expect(inactiveCust!.isActive, false);
+
+      // Tagihan otomatis tidak boleh dibuat lagi untuk pelanggan yang tidak aktif
+      final generatedInactive = await billRepo.autoGenerateRecurringBills(
+        targetMonth: 12,
+        targetYear: 2026,
+      );
+      expect(generatedInactive, 0);
+    });
+
+    // -------------------------------------------------------------------------
+    // Kriteria 9: Data Transaksi Lama Tetap Ketika Master Paket Diperbarui
+    // -------------------------------------------------------------------------
+    test('Kriteria 9: Riwayat tagihan lama tidak boleh berubah ketika master paket diperbarui', () async {
+      final pkg = (await packageRepo.getAllPackages()).firstWhere((p) => p.price == 60000.0);
+
+      final custId = await customerRepo.createCustomerWithFirstBill(
+        customer: CustomerModel(
+          code: 'CUST-0090',
+          name: 'Iwan Fals',
+          phone: '08123123123',
+          address: 'Jl. Cemara 1',
+          packageId: pkg.id!,
+          installationDate: '2026-01-01',
+          startDate: '2026-01-01',
+        ),
+        firstBillAmount: 60000.0,
+        subscriptionFee: 60000.0,
+      );
+
+      // Verifikasi tagihan awal tersimpan Rp60.000
+      final billsBefore = await billRepo.getBillsByCustomer(custId);
+      final billId = billsBefore.first.id!;
+      expect(billsBefore.first.amount, 60000.0);
+
+      // Perbarui master paket di database (misalnya harga naik menjadi Rp75.000)
+      await packageRepo.updatePackage(pkg.copyWith(
+        price: 75000.0,
+      ));
+
+      // Verifikasi master paket memang berubah
+      final updatedPkg = await packageRepo.getPackageById(pkg.id!);
+      expect(updatedPkg!.price, 75000.0);
+
+      // Tagihan lama HARUS tetap Rp60.000!
+      final oldBill = await billRepo.getBillById(billId);
+      expect(oldBill!.amount, 60000.0);
+      expect(oldBill.subscriptionFee, 60000.0);
+    });
+
+    // -------------------------------------------------------------------------
+    // Kriteria 10: Konsistensi Perhitungan Hari, Bulan, dan Biaya
+    // -------------------------------------------------------------------------
+    test('Kriteria 10: Akurasi perhitungan hari, tarif harian 30 hari, prorata, dan sisa hari', () {
+      // Tarif Bulanan / 30
+      // Paket Rp85.000 / 30 = Rp2.833,33
+      final daily85k = BillingCalculator.calculateDailyFee(85000);
+      expect(daily85k, closeTo(2833.333, 0.001));
+
+      // Paket Rp111.000 / 30 = Rp3.700
+      final daily111k = BillingCalculator.calculateDailyFee(111000);
+      expect(daily111k, 3700.0);
+
+      // Paket Rp150.000 / 30 = Rp5.000
+      final daily150k = BillingCalculator.calculateDailyFee(150000);
+      expect(daily150k, 5000.0);
+
+      // Prorata 10 hari untuk paket Rp150.000 = 10 * 5.000 = 50.000
+      final fee10Days = BillingCalculator.calculatePeriodFee(150000, 10);
+      expect(fee10Days, 50000.0);
+
+      // 30 hari normal = Rp150.000
+      final fee30Days = BillingCalculator.calculatePeriodFee(150000, 30);
+      expect(fee30Days, 150000.0);
+
+      // Tanggal Mulai dan Berakhir (Siklus 30 Hari)
+      final start = DateTime(2026, 10, 1);
+      final end = BillingCalculator.calculatePeriodEnd(start, 30);
+      expect(end, DateTime(2026, 10, 31));
+
+      // Total hari berlangganan
+      final totalDays = BillingCalculator.calculateTotalSubscriptionDays('2026-10-01', asOf: DateTime(2026, 10, 27));
+      expect(totalDays, 26);
+
+      // Sisa hari aktif
+      final remaining = BillingCalculator.calculateRemainingDays('2026-10-31', asOf: DateTime(2026, 10, 27));
+      expect(remaining, 4);
+
+      // Format Rupiah
+      expect(BillingCalculator.formatRupiah(85000), 'Rp 85.000');
+      expect(BillingCalculator.formatRupiahWithDecimals(daily85k), 'Rp 2.833,33');
+    });
+  });
+}

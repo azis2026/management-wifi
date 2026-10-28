@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Flutter: LDPlayer Debug",
+            "request": "launch",
+            "type": "dart",
+            "deviceId": "emulator-5554"
+        },
+        {
+            "name": "Flutter: Auto Select Device",
+            "request": "launch",
+            "type": "dart"
+        }
+    ]
+}
