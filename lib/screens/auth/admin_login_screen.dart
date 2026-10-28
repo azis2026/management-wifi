@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../models/admin_model.dart';
 import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
+import '../../services/supabase_service.dart';
 import '../../services/api_config.dart';
 import '../../utils/app_theme.dart';
 import '../main_navigation_screen.dart';
@@ -58,7 +59,48 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       _errorMessage = null;
     });
 
-    // Validasi murni ke Backend API (POST /api/auth/login)
+    // 1. Coba login via Supabase Cloud terlebih dahulu
+    try {
+      final supaSuccess = await SupabaseService.instance.loginWithCredentials(
+        email: email,
+        password: password,
+        rememberLogin: _rememberMe,
+      );
+
+      if (supaSuccess) {
+        final currentAdmin = SupabaseService.instance.currentAdmin;
+        await SessionService.instance.setSession(
+          token: 'supabase_session_${currentAdmin.id}',
+          admin: currentAdmin,
+          remember: _rememberMe,
+        );
+
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Selamat datang, ${currentAdmin.name}! (Supabase Cloud)'),
+            backgroundColor: AppTheme.statusSuccess,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+
+        if (widget.isInitialGate) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+          );
+        } else {
+          Navigator.pop(context, true);
+        }
+        return;
+      }
+    } catch (e) {
+      debugPrint('Supabase login fallback to API: $e');
+    }
+
+    // 2. Fallback: Validasi ke Backend API jika backend dinyalakan
     final authRes = await AuthService.instance.login(
       email: email,
       password: password,
