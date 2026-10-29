@@ -13,6 +13,7 @@ import '../../utils/excel_exporter.dart';
 import '../../utils/whatsapp_reminder_service.dart';
 import 'customer_detail_screen.dart';
 import 'customer_form_screen.dart';
+import '../../services/supabase_service.dart';
 
 class CustomerListScreen extends StatefulWidget {
   const CustomerListScreen({super.key});
@@ -43,6 +44,7 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
   @override
   void initState() {
     super.initState();
+    SupabaseService.instance.addListener(_onSupabaseChange);
     _loadPackages();
     _load();
     _searchCtrl.addListener(() {
@@ -55,8 +57,15 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
 
   @override
   void dispose() {
+    SupabaseService.instance.removeListener(_onSupabaseChange);
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _onSupabaseChange() {
+    if (mounted) {
+      _load();
+    }
   }
 
   Future<void> _loadPackages() async {

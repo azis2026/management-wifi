@@ -19,6 +19,7 @@ import 'bill/bill_list_screen.dart';
 import 'due_reminders/due_reminder_screen.dart';
 import 'receipt/receipt_preview_screen.dart';
 import '../services/session_service.dart';
+import '../services/supabase_service.dart';
 import '../app.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -45,11 +46,32 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    SupabaseService.instance.addListener(_onSupabaseChange);
     _loadDashboardData();
+  }
+
+  @override
+  void dispose() {
+    SupabaseService.instance.removeListener(_onSupabaseChange);
+    super.dispose();
+  }
+
+  void _onSupabaseChange() {
+    if (mounted) {
+      _loadDashboardData();
+    }
   }
 
   Future<void> _loadDashboardData() async {
     setState(() => _isLoading = true);
+
+    // Jika sedang online, sinkronkan data ringkas pelanggan & tagihan dari cloud
+    if (SupabaseService.instance.isOnline) {
+      try {
+        await SupabaseService.instance.pullCustomersOnly();
+        await SupabaseService.instance.pullBillsOnly();
+      } catch (_) {}
+    }
 
     // Auto-generate recurring bills for active customers every 30 days
     await _billRepo.autoGenerateRecurringBills();

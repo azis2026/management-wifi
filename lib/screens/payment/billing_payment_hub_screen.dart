@@ -14,6 +14,7 @@ import '../../utils/billing_calculator.dart';
 import '../../utils/whatsapp_reminder_service.dart';
 import '../bill/bill_detail_screen.dart';
 import '../receipt/receipt_preview_screen.dart';
+import '../../services/supabase_service.dart';
 
 class BillingPaymentHubScreen extends StatefulWidget {
   final CustomerModel? initialCustomer;
@@ -80,6 +81,7 @@ class _BillingPaymentHubScreenState extends State<BillingPaymentHubScreen> with 
   @override
   void initState() {
     super.initState();
+    SupabaseService.instance.addListener(_onSupabaseChange);
     _tabController = TabController(
       length: 3,
       vsync: this,
@@ -90,6 +92,7 @@ class _BillingPaymentHubScreenState extends State<BillingPaymentHubScreen> with 
 
   @override
   void dispose() {
+    SupabaseService.instance.removeListener(_onSupabaseChange);
     _tabController.dispose();
     _customerSearchCtrl.dispose();
     _amountCtrl.dispose();
@@ -97,6 +100,12 @@ class _BillingPaymentHubScreenState extends State<BillingPaymentHubScreen> with 
     _billSearchCtrl.dispose();
     _historySearchCtrl.dispose();
     super.dispose();
+  }
+
+  void _onSupabaseChange() {
+    if (mounted) {
+      _loadInitialData();
+    }
   }
 
   Future<void> _loadInitialData() async {
