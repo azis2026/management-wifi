@@ -192,7 +192,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       backgroundColor: AppTheme.bgLight,
       appBar: AppBar(
         automaticallyImplyLeading: !widget.isInitialGate,
-        title: const Text('Login Backend API'),
+        title: const Text('Login Multi-Admin WiFi'),
         actions: [
           IconButton(
             tooltip: 'Pengaturan Server API',
@@ -347,14 +347,62 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Masuk Akun',
+                      'Pilih Profil Admin (4 Akun Bawaan):',
                       style: TextStyle(
-                        fontSize: 16,
+                        fontSize: 13,
                         fontWeight: FontWeight.bold,
                         color: AppTheme.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 10),
+                    ...AdminModel.defaultAdmins.map((adm) {
+                      final isSelected = _emailController.text.trim().toLowerCase() == adm.email.toLowerCase();
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          side: BorderSide(
+                            color: isSelected ? AppTheme.navyPrimary : AppTheme.borderLight,
+                            width: isSelected ? 2 : 1,
+                          ),
+                        ),
+                        color: isSelected ? Colors.blue.withOpacity(0.06) : Colors.white,
+                        child: ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                          leading: CircleAvatar(
+                            radius: 16,
+                            backgroundColor: isSelected ? AppTheme.navyPrimary : Colors.grey[200],
+                            child: Icon(Icons.person, size: 18, color: isSelected ? Colors.white : Colors.grey[700]),
+                          ),
+                          title: Text(adm.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          subtitle: Text('${adm.role} • ${adm.email}', style: const TextStyle(fontSize: 11)),
+                          trailing: isSelected
+                              ? const Icon(Icons.check_circle, color: AppTheme.navyPrimary, size: 20)
+                              : const Icon(Icons.radio_button_unchecked, color: Colors.grey, size: 20),
+                          onTap: () {
+                            setState(() {
+                              _emailController.text = adm.email;
+                              _passwordController.text = 'admin123';
+                              _errorMessage = null;
+                            });
+                          },
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 8),
+                    const Divider(height: 1),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Detail Login:',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
                     TextField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
@@ -420,7 +468,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
                             : const Icon(Icons.login_rounded),
-                        label: Text(_isLoading ? 'Menghubungi API...' : 'Masuk via API'),
+                        label: Text(_isLoading ? 'Memverifikasi...' : 'Masuk Sekarang'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.navyPrimary,
                           foregroundColor: Colors.white,

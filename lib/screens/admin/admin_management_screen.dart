@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/session_service.dart';
+import '../../services/supabase_service.dart';
 import '../../utils/app_theme.dart';
 import '../../models/admin_model.dart';
 import '../../app.dart';
@@ -193,6 +194,48 @@ class _AdminManagementScreenState extends State<AdminManagementScreen> {
                           ],
                         ),
                       ),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 42,
+                      child: isCurrent
+                          ? ElevatedButton.icon(
+                              onPressed: null,
+                              icon: const Icon(Icons.check_circle_rounded, color: Colors.green, size: 18),
+                              label: const Text('Akun Sedang Digunakan', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green.withOpacity(0.12),
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            )
+                          : ElevatedButton.icon(
+                              onPressed: () async {
+                                await SessionService.instance.setSession(
+                                  token: 'supabase_session_${admin.id}',
+                                  admin: admin,
+                                  remember: true,
+                                );
+                                await SupabaseService.instance.setActiveAdmin(admin, rememberLogin: true);
+                                if (!mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Berhasil beralih ke: ${admin.name} (${admin.role})'),
+                                    backgroundColor: AppTheme.statusSuccess,
+                                  ),
+                                );
+                                setState(() {});
+                              },
+                              icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                              label: Text('Gunakan Akun Ini (${admin.role})'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: color,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
                     ),
                   ],
                 ),

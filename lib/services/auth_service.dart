@@ -20,6 +20,7 @@ class AuthService {
   static final AuthService instance = AuthService._internal();
   AuthService._internal();
 
+  /// Login via REST API Backend (POST /api/auth/login)
   /// Login via REST API Backend / Supabase REST
   Future<AuthResponse> login({
     required String email,

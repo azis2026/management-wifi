@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart';
 import '../database/database_helper.dart';
 import '../models/bill_model.dart';
 import '../models/customer_model.dart';
 import '../utils/date_formatter.dart';
+import '../services/supabase_service.dart';
 
 class BillRepository {
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
@@ -27,6 +30,48 @@ class BillRepository {
     int? year,
     int? limit,
   }) async {
+    // 1. Sinkronisasi tagihan terbaru dari Supabase jika online
+    if (SupabaseService.instance.isOnline && SupabaseService.instance.client != null) {
+      try {
+        final List<dynamic> cloudBills = await SupabaseService.instance.client!.from('bills').select();
+        if (cloudBills.isNotEmpty) {
+          final db = await _dbHelper.database;
+          for (final item in cloudBills) {
+            await db.insert(
+              DatabaseHelper.tableBills,
+              {
+                'id': item['id'],
+                'bill_number': item['bill_number'],
+                'customer_id': item['customer_id'],
+                'customer_code': item['customer_code'],
+                'customer_name': item['customer_name'],
+                'customer_phone': item['customer_phone'] ?? '',
+                'package_id': item['package_id'] ?? 1,
+                'package_name': item['package_name'] ?? '',
+                'period_month': item['period_month'] ?? 1,
+                'period_year': item['period_year'] ?? DateTime.now().year,
+                'period_start': item['period_start'] ?? '',
+                'period_end': item['period_end'] ?? '',
+                'amount': item['amount'] ?? 0,
+                'paid_amount': item['paid_amount'] ?? 0,
+                'remaining_amount': item['remaining_amount'] ?? 0,
+                'installation_fee': item['installation_fee'] ?? 0,
+                'subscription_fee': item['subscription_fee'] ?? 0,
+                'additional_fee': item['additional_fee'] ?? 0,
+                'discount': item['discount'] ?? 0,
+                'is_first_bill': (item['is_first_bill'] == true || item['is_first_bill'] == 1) ? 1 : 0,
+                'due_date': item['due_date'] ?? '',
+                'status': item['status'] ?? 'Belum Bayar',
+                'notes': item['notes'] ?? '',
+                'created_at': item['created_at'] ?? DateTime.now().toIso8601String(),
+              },
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+        }
+      } catch (_) {}
+    }
+
     await updateOverdueStatus();
     final db = await _dbHelper.database;
 
@@ -187,7 +232,42 @@ class BillRepository {
       notes: notes,
     );
 
-    return await db.insert(DatabaseHelper.tableBills, bill.toMap());
+    final id = await db.insert(DatabaseHelper.tableBills, bill.toMap());
+
+    if (SupabaseService.instance.isOnline && SupabaseService.instance.client != null) {
+      try {
+        await SupabaseService.instance.client!.from('bills').upsert({
+          'id': id,
+          'bill_number': bill.billNumber,
+          'customer_id': bill.customerId,
+          'customer_code': bill.customerCode,
+          'customer_name': bill.customerName,
+          'customer_phone': bill.customerPhone,
+          'package_id': bill.packageId,
+          'package_name': bill.packageName,
+          'period_month': bill.periodMonth,
+          'period_year': bill.periodYear,
+          'period_start': bill.periodStart,
+          'period_end': bill.periodEnd,
+          'amount': bill.amount,
+          'paid_amount': bill.paidAmount,
+          'remaining_amount': bill.remainingAmount,
+          'installation_fee': bill.installationFee,
+          'subscription_fee': bill.subscriptionFee,
+          'additional_fee': bill.additionalFee,
+          'discount': bill.discount,
+          'is_first_bill': bill.isFirstBill,
+          'due_date': bill.dueDate,
+          'status': bill.status,
+          'notes': bill.notes,
+          'created_by_admin': SupabaseService.instance.currentAdmin.name,
+        });
+      } catch (e) {
+        debugPrint('Error syncing bill to Supabase: $e');
+      }
+    }
+
+    return id;
   }
 
   /// Generate recurring bills automatically for active customers every 30 days

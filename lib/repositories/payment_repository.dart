@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart';
 import '../database/database_helper.dart';
 import '../models/payment_model.dart';
 import '../models/bill_model.dart';
@@ -80,7 +82,7 @@ class PaymentRepository {
     // Realtime Cloud Sync ke Supabase jika sedang online
     if (SupabaseService.instance.isOnline && SupabaseService.instance.client != null) {
       try {
-        SupabaseService.instance.client!.from('payments').upsert({
+        await SupabaseService.instance.client!.from('payments').upsert({
           'receipt_number': payment.receiptNumber,
           'bill_id': payment.billId,
           'bill_number': payment.billNumber,
@@ -93,13 +95,13 @@ class PaymentRepository {
           'notes': payment.notes,
           'received_by_admin': SupabaseService.instance.currentAdmin.name,
         });
-        SupabaseService.instance.client!.from('bills').update({
+        await SupabaseService.instance.client!.from('bills').update({
           'paid_amount': bill.paidAmount + amountPaid,
           'remaining_amount': (bill.amount - (bill.paidAmount + amountPaid)).clamp(0, bill.amount),
           'status': (bill.amount - (bill.paidAmount + amountPaid)) <= 0 ? BillStatus.paid : BillStatus.partial,
         }).eq('bill_number', bill.billNumber);
       } catch (e) {
-        // Abaikan error jaringan offline
+        debugPrint('Error syncing payment to Supabase: $e');
       }
     }
 
@@ -220,6 +222,37 @@ class PaymentRepository {
       whereClauses.add('(customer_name LIKE ? OR receipt_number LIKE ? OR bill_number LIKE ?)');
       final q = '%${searchQuery.trim()}%';
       whereArgs.addAll([q, q, q]);
+    }
+
+    // 1. Sinkronkan pembayaran terbaru dari Supabase Cloud jika online
+    if (SupabaseService.instance.isOnline && SupabaseService.instance.client != null) {
+      try {
+        final List<dynamic> cloudPayments = await SupabaseService.instance.client!.from('payments').select();
+        if (cloudPayments.isNotEmpty) {
+          for (final item in cloudPayments) {
+            await db.insert(
+              DatabaseHelper.tablePayments,
+              {
+                'id': item['id'],
+                'receipt_number': item['receipt_number'],
+                'bill_id': item['bill_id'],
+                'bill_number': item['bill_number'],
+                'customer_id': item['customer_id'],
+                'customer_code': item['customer_code'],
+                'customer_name': item['customer_name'],
+                'payment_date': item['payment_date'],
+                'amount_paid': item['amount_paid'],
+                'payment_method': item['payment_method'],
+                'notes': item['notes'] ?? '',
+                'is_cancelled': (item['is_cancelled'] == true || item['is_cancelled'] == 1) ? 1 : 0,
+                'cancel_reason': item['cancel_reason'] ?? '',
+                'created_at': item['created_at'] ?? DateTime.now().toIso8601String(),
+              },
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+        }
+      } catch (_) {}
     }
 
     final where = whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null;

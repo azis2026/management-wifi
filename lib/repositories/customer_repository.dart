@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:sqflite/sqflite.dart';
 import '../database/database_helper.dart';
 import '../models/customer_model.dart';
 import '../models/bill_model.dart';
@@ -15,6 +17,41 @@ class CustomerRepository {
     int? packageId,
     String? paymentStatusFilter, // 'Semua', 'Lunas', 'Menunggak', 'Terlambat'
   }) async {
+    // 1. Jika online, tarik data pelanggan terbaru dari Supabase Cloud agar multi-admin sinkron
+    if (SupabaseService.instance.isOnline && SupabaseService.instance.client != null) {
+      try {
+        final List<dynamic> cloudCusts = await SupabaseService.instance.client!.from('customers').select();
+        if (cloudCusts.isNotEmpty) {
+          final db = await _dbHelper.database;
+          for (final item in cloudCusts) {
+            await db.insert(
+              DatabaseHelper.tableCustomers,
+              {
+                'id': item['id'],
+                'customer_code': item['customer_code'],
+                'name': item['name'],
+                'phone': item['phone'],
+                'address': item['address'],
+                'package_id': item['package_id'] ?? 1,
+                'package_name': item['package_name'] ?? '',
+                'package_speed': item['package_speed'] ?? '',
+                'monthly_fee': item['monthly_fee'] ?? 0,
+                'install_date': item['install_date'] ?? '',
+                'start_date': item['start_date'] ?? item['install_date'] ?? '',
+                'installation_fee': item['installation_fee'] ?? 0,
+                'due_day': item['due_day'] ?? 10,
+                'is_active': (item['is_active'] == true || item['is_active'] == 1) ? 1 : 0,
+                'notes': item['notes'] ?? '',
+                'ktp_image_path': item['ktp_image_path'],
+                'created_at': item['created_at'] ?? DateTime.now().toIso8601String(),
+              },
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+        }
+      } catch (_) {}
+    }
+
     final db = await _dbHelper.database;
 
     final List<String> whereClauses = [];
@@ -162,6 +199,11 @@ class CustomerRepository {
     int customerId = 0;
     int billId = 0;
     PaymentModel? payment;
+    String billNumber = '';
+    String dueDateStr = '';
+    String periodStartStr = '';
+    String periodEndStr = '';
+    String billStatus = BillStatus.unpaid;
 
     await db.transaction((txn) async {
       // 1. Insert customer
@@ -179,13 +221,12 @@ class CustomerRepository {
         ['$prefix%'],
       );
       final count = (countRes.first['count'] as int?) ?? 0;
-      final billNumber = '$prefix-${(count + 1).toString().padLeft(4, '0')}';
+      billNumber = '$prefix-${(count + 1).toString().padLeft(4, '0')}';
 
-      final dueDateStr = DateFormatter.toIsoDateOnly(dueDate);
-      final periodStartStr = DateFormatter.toIsoDateOnly(periodStart);
-      final periodEndStr = DateFormatter.toIsoDateOnly(periodEnd);
+      dueDateStr = DateFormatter.toIsoDateOnly(dueDate);
+      periodStartStr = DateFormatter.toIsoDateOnly(periodStart);
+      periodEndStr = DateFormatter.toIsoDateOnly(periodEnd);
 
-      String billStatus = BillStatus.unpaid;
       if (initialPaidAmount >= firstBillTotal && firstBillTotal > 0) {
         billStatus = BillStatus.paid;
       } else if (initialPaidAmount > 0) {
@@ -252,7 +293,7 @@ class CustomerRepository {
     // Realtime Cloud Sync ke Supabase jika online
     if (SupabaseService.instance.isOnline && SupabaseService.instance.client != null) {
       try {
-        SupabaseService.instance.client!.from('customers').upsert({
+        await SupabaseService.instance.client!.from('customers').upsert({
           'id': customerId,
           'customer_code': code,
           'name': customer.name,
@@ -271,9 +312,37 @@ class CustomerRepository {
           'ktp_image_path': customer.ktpImagePath,
           'created_by_admin': SupabaseService.instance.currentAdmin.name,
         });
+
+        await SupabaseService.instance.client!.from('bills').upsert({
+          'id': billId,
+          'bill_number': billNumber,
+          'customer_id': customerId,
+          'customer_code': code,
+          'customer_name': customer.name,
+          'customer_phone': customer.phone,
+          'package_id': customer.packageId,
+          'package_name': customer.packageName,
+          'period_month': periodStart.month,
+          'period_year': periodStart.year,
+          'period_start': periodStartStr,
+          'period_end': periodEndStr,
+          'amount': firstBillTotal,
+          'paid_amount': initialPaidAmount,
+          'remaining_amount': (firstBillTotal - initialPaidAmount).clamp(0, firstBillTotal),
+          'installation_fee': installationFee,
+          'subscription_fee': subscriptionFee,
+          'additional_fee': additionalFee,
+          'discount': discount,
+          'is_first_bill': true,
+          'due_date': dueDateStr,
+          'status': billStatus,
+          'notes': adminNotes.isNotEmpty ? adminNotes : 'Tagihan Pertama (Registrasi Baru)',
+          'created_by_admin': SupabaseService.instance.currentAdmin.name,
+        });
+
         final p = payment;
         if (p != null) {
-          SupabaseService.instance.client!.from('payments').upsert({
+          await SupabaseService.instance.client!.from('payments').upsert({
             'receipt_number': p.receiptNumber,
             'bill_id': p.billId,
             'bill_number': p.billNumber,
@@ -287,7 +356,9 @@ class CustomerRepository {
             'received_by_admin': SupabaseService.instance.currentAdmin.name,
           });
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Error syncing new customer to Supabase: $e');
+      }
     }
 
     return {
@@ -337,6 +408,29 @@ class CustomerRepository {
         whereArgs: [customer.id],
       );
     });
+
+    // Realtime Cloud Sync ke Supabase
+    if (SupabaseService.instance.isOnline && SupabaseService.instance.client != null && customer.id != null) {
+      try {
+        await SupabaseService.instance.client!.from('customers').update({
+          'customer_code': customer.customerCode,
+          'name': customer.name,
+          'phone': customer.phone,
+          'address': customer.address,
+          'package_id': customer.packageId,
+          'package_name': customer.packageName,
+          'package_speed': customer.packageSpeed,
+          'monthly_fee': customer.monthlyFee,
+          'install_date': customer.installDate,
+          'start_date': customer.startDate,
+          'installation_fee': customer.installationFee,
+          'due_day': customer.dueDay,
+          'is_active': customer.isActive,
+          'notes': customer.notes,
+          'ktp_image_path': customer.ktpImagePath,
+        }).eq('id', customer.id!);
+      } catch (_) {}
+    }
   }
 
   Future<void> toggleCustomerStatus(int id, bool isActive) async {
@@ -347,6 +441,15 @@ class CustomerRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+
+    // Realtime Cloud Sync ke Supabase
+    if (SupabaseService.instance.isOnline && SupabaseService.instance.client != null) {
+      try {
+        await SupabaseService.instance.client!.from('customers').update({
+          'is_active': isActive,
+        }).eq('id', id);
+      } catch (_) {}
+    }
   }
 
   Future<void> deleteCustomerHistory(int customerId) async {
@@ -373,6 +476,13 @@ class CustomerRepository {
       where: 'id = ?',
       whereArgs: [customerId],
     );
+
+    // Realtime Cloud Sync ke Supabase
+    if (SupabaseService.instance.isOnline && SupabaseService.instance.client != null) {
+      try {
+        await SupabaseService.instance.client!.from('customers').delete().eq('id', customerId);
+      } catch (_) {}
+    }
   }
 
   Future<int> getTotalCustomers({bool? activeOnly}) async {

@@ -50,6 +50,11 @@ class DatabaseHelper {
       await db.execute('ALTER TABLE $tablePackages ADD COLUMN custom_daily_price INTEGER DEFAULT 0');
     } catch (_) {}
 
+    // Pastikan paket master selalu ada di database SQLite lokal
+    try {
+      await ensureMasterPackages(db);
+    } catch (_) {}
+
     return db;
   }
 
@@ -114,7 +119,7 @@ class DatabaseHelper {
       } catch (_) {}
 
       // 3. Ensure Master Packages exist as required by Section 2
-      await _ensureMasterPackages(db);
+      await ensureMasterPackages(db);
     }
 
     if (oldVersion < 4) {
@@ -125,7 +130,7 @@ class DatabaseHelper {
     }
   }
 
-  static Future<void> _ensureMasterPackages(Database db) async {
+  static Future<void> ensureMasterPackages(Database db) async {
     final now = DateTime.now().toIso8601String();
     final masterPackages = [
       {'name': 'Paket Hemat', 'speed': '6 Mbps', 'monthly_price': 60000, 'installation_fee': 0},
@@ -153,6 +158,11 @@ class DatabaseHelper {
         });
       }
     }
+  }
+
+  Future<void> ensureMasterPackagesExist() async {
+    final db = await database;
+    await ensureMasterPackages(db);
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -253,7 +263,7 @@ class DatabaseHelper {
     ''');
 
     // Seed default master packages (Section 2)
-    await _ensureMasterPackages(db);
+    await ensureMasterPackages(db);
 
     // Seed default settings
     await db.insert(tableSettings, {'key': 'business_name', 'value': 'WiFi Net Mandiri'});
