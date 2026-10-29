@@ -23,27 +23,20 @@ class SessionService extends ChangeNotifier {
       final token = prefs.getString('jwt_token');
       final adminJsonStr = prefs.getString('active_admin_data');
 
-      if (token != null && token.isNotEmpty) {
+      if (token != null && token.isNotEmpty && adminJsonStr != null && adminJsonStr.isNotEmpty) {
         ApiService.instance.setToken(token);
-        _isLoggedIn = true;
-
-        if (adminJsonStr != null && adminJsonStr.isNotEmpty) {
-          try {
-            final Map<String, dynamic> map = jsonDecode(adminJsonStr);
-            _currentAdmin = AdminModel(
-              id: map['id']?.toString() ?? '',
-              name: map['name']?.toString() ?? 'Admin',
-              email: map['email']?.toString() ?? '',
-              role: map['role']?.toString() ?? 'Admin',
-              phone: map['phone']?.toString() ?? '',
-              createdAt: map['created_at']?.toString() ?? '',
-            );
-          } catch (_) {}
+        try {
+          final Map<String, dynamic> map = jsonDecode(adminJsonStr);
+          _currentAdmin = AdminModel.fromMap(map);
+          _isLoggedIn = true;
+        } catch (_) {
+          _isLoggedIn = false;
+          _currentAdmin = null;
         }
       } else {
-        // Otomatis login sebagai Admin Utama (Owner) agar aplikasi web langsung bisa dipakai lancar
-        _isLoggedIn = true;
-        _currentAdmin = AdminModel.defaultAdmins.first;
+        // Belum ada sesi login tersimpan - Wajib login via AdminLoginScreen
+        _isLoggedIn = false;
+        _currentAdmin = null;
       }
     } catch (e) {
       debugPrint('SessionService init error: $e');

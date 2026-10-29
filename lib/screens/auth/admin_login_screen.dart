@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../models/admin_model.dart';
-import '../../services/auth_service.dart';
 import '../../services/session_service.dart';
 import '../../services/supabase_service.dart';
 import '../../services/api_config.dart';
@@ -28,8 +27,11 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
   @override
   void initState() {
     super.initState();
-    _emailController.text = 'admin1@wifimanager.com';
-    _passwordController.text = 'admin123';
+    final firstAdmin = SupabaseService.instance.admins.isNotEmpty
+        ? SupabaseService.instance.admins.first
+        : AdminModel.defaultAdmins.first;
+    _emailController.text = firstAdmin.email;
+    _passwordController.text = '';
     _serverUrlController.text = AppConfig.baseUrl;
   }
 
@@ -59,7 +61,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       _errorMessage = null;
     });
 
-    // 1. Coba login via Supabase Cloud terlebih dahulu
+    // 1. Verifikasi Ketat Kredensial via Supabase Cloud / Database
     try {
       final supaSuccess = await SupabaseService.instance.loginWithCredentials(
         email: email,
@@ -80,7 +82,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Selamat datang, ${currentAdmin.name}! (Supabase Cloud)'),
+            content: Text('Selamat datang, ${currentAdmin.name}! (${currentAdmin.role})'),
             backgroundColor: AppTheme.statusSuccess,
             behavior: SnackBarBehavior.floating,
           ),
@@ -97,93 +99,15 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
         return;
       }
     } catch (e) {
-      debugPrint('Supabase login fallback to API: $e');
+      debugPrint('Supabase login error: $e');
     }
 
-    // 2. Fallback: Jika kredensial cocok dengan admin default tapi supabase/API offline
-    final defaultMatched = AdminModel.defaultAdmins.where((a) => a.email.toLowerCase() == email.trim().toLowerCase());
-    if (defaultMatched.isNotEmpty && password == 'admin123') {
-      final loggedAdmin = defaultMatched.first;
-      await SessionService.instance.setSession(
-        token: 'local_session_${loggedAdmin.id}',
-        admin: loggedAdmin,
-        remember: _rememberMe,
-      );
-
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Selamat datang, ${loggedAdmin.name}!'),
-          backgroundColor: AppTheme.statusSuccess,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-
-      if (widget.isInitialGate) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
-        );
-      } else {
-        Navigator.pop(context, true);
-      }
-      return;
-    }
-
-    // 3. Fallback: Validasi ke Backend API jika backend dinyalakan
-    final authRes = await AuthService.instance.login(
-      email: email,
-      password: password,
-    );
-
+    // Jika sampai di sini, autentikasi gagal (email tidak ada atau password salah)
     if (!mounted) return;
-
-    if (authRes.success && authRes.token != null) {
-      final loggedAdmin = authRes.admin ??
-          AdminModel(
-            id: 'admin',
-            name: email.split('@').first,
-            email: email,
-            role: 'Admin',
-            createdAt: DateTime.now().toIso8601String(),
-          );
-
-      // Simpan session
-      await SessionService.instance.setSession(
-        token: authRes.token!,
-        admin: loggedAdmin,
-        remember: _rememberMe,
-      );
-
-      setState(() => _isLoading = false);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Selamat datang, ${loggedAdmin.name}!'),
-          backgroundColor: AppTheme.statusSuccess,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-
-      if (widget.isInitialGate) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
-        );
-      } else {
-        Navigator.pop(context, true);
-      }
-    } else {
-      // Login gagal: Kredensial salah / API menolak -> Tolak akses & tampilkan pesan backend
-      setState(() {
-        _isLoading = false;
-        _errorMessage = authRes.message.isNotEmpty
-            ? authRes.message
-            : 'Email atau password salah. Akses ditolak oleh Backend API.';
-      });
-    }
+    setState(() {
+      _isLoading = false;
+      _errorMessage = 'Email atau password salah. Periksa kembali email dan password yang Anda masukkan.';
+    });
   }
 
   @override
@@ -347,7 +271,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Pilih Profil Admin (4 Akun Bawaan):',
+                      'Pilih Akun Admin untuk Masuk:',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
@@ -355,7 +279,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    ...AdminModel.defaultAdmins.map((adm) {
+                    ...SupabaseService.instance.admins.map((adm) {
                       final isSelected = _emailController.text.trim().toLowerCase() == adm.email.toLowerCase();
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
@@ -384,7 +308,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                           onTap: () {
                             setState(() {
                               _emailController.text = adm.email;
-                              _passwordController.text = 'admin123';
+                              _passwordController.text = '';
                               _errorMessage = null;
                             });
                           },

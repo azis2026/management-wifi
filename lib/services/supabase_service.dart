@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/admin_model.dart';
@@ -59,6 +60,8 @@ class SupabaseService extends ChangeNotifier {
 
       if (savedLoggedIn == '1') {
         _isLoggedIn = true;
+      } else {
+        _isLoggedIn = false;
       }
 
       if (savedUrl.isNotEmpty && savedKey.isNotEmpty) {
@@ -166,23 +169,191 @@ class SupabaseService extends ChangeNotifier {
     }
   }
 
-  /// Memuat daftar 4 Admin dari Supabase
+  /// Memuat daftar 4 Admin dari Supabase atau lokal
   Future<void> loadAdmins() async {
     if (_client != null && _isOnline) {
       try {
         final List<dynamic> response = await _client!.from('admins').select().order('id');
         if (response.isNotEmpty) {
           _admins = response.map((data) => AdminModel.fromMap(data as Map<String, dynamic>)).toList();
+          await _persistAdminsLocally();
           final foundCurrent = _admins.where((a) => a.id == _currentAdmin.id);
           if (foundCurrent.isNotEmpty) {
             _currentAdmin = foundCurrent.first;
           }
           notifyListeners();
+          return;
         }
       } catch (e) {
         debugPrint('Gagal load admins dari cloud: $e');
       }
     }
+
+    // Fallback baca dari cache SQLite lokal
+    try {
+      final db = await DatabaseHelper.instance.database;
+      final maps = await db.query(
+        DatabaseHelper.tableSettings,
+        where: "key = 'cached_admins_list'",
+      );
+      if (maps.isNotEmpty) {
+        final val = maps.first['value'] as String?;
+        if (val != null && val.isNotEmpty) {
+          final List<dynamic> list = jsonDecode(val);
+          _admins = list.map((item) => AdminModel.fromMap(item as Map<String, dynamic>)).toList();
+          notifyListeners();
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// Simpan daftar admin ke SQLite settings lokal
+  Future<void> _persistAdminsLocally() async {
+    try {
+      final db = await DatabaseHelper.instance.database;
+      final jsonList = _admins.map((a) => a.toMap()).toList();
+      await db.insert(
+        DatabaseHelper.tableSettings,
+        {'key': 'cached_admins_list', 'value': jsonEncode(jsonList)},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (_) {}
+  }
+
+  /// Tambah akun admin baru
+  Future<bool> createAdmin({
+    required String name,
+    required String email,
+    required String role,
+    String phone = '',
+    required String password,
+  }) async {
+    final cleanEmail = email.trim().toLowerCase();
+    
+    // Cek apakah email sudah terdaftar
+    if (_admins.any((a) => a.email.toLowerCase() == cleanEmail)) {
+      throw Exception('Email "$cleanEmail" sudah digunakan oleh admin lain.');
+    }
+
+    final newId = 'admin-${DateTime.now().millisecondsSinceEpoch}';
+    final newAdmin = AdminModel(
+      id: newId,
+      name: name.trim(),
+      email: cleanEmail,
+      role: role.trim(),
+      phone: phone.trim(),
+      passwordHash: password,
+      isActive: true,
+      createdAt: DateTime.now().toIso8601String(),
+    );
+
+    // 1. Simpan ke Supabase jika online
+    if (_client != null && _isOnline) {
+      try {
+        await _client!.from('admins').insert({
+          'id': newId,
+          'name': newAdmin.name,
+          'email': newAdmin.email,
+          'role': newAdmin.role,
+          'phone': newAdmin.phone,
+          'password_hash': password,
+          'is_active': true,
+        });
+      } catch (e) {
+        debugPrint('Gagal insert admin ke Supabase: $e');
+        throw Exception('Gagal menyimpan admin ke database cloud: $e');
+      }
+    }
+
+    // 2. Simpan di memori & SQLite lokal
+    _admins.add(newAdmin);
+    await _persistAdminsLocally();
+    notifyListeners();
+    return true;
+  }
+
+  /// Edit data username/nama, email, role, no HP, dan ganti password admin
+  Future<bool> updateAdmin({
+    required String id,
+    required String name,
+    required String email,
+    required String role,
+    String phone = '',
+    String? newPassword,
+  }) async {
+    final cleanEmail = email.trim().toLowerCase();
+
+    // 1. Update ke Supabase Cloud
+    if (_client != null && _isOnline) {
+      try {
+        final updateData = <String, dynamic>{
+          'name': name.trim(),
+          'email': cleanEmail,
+          'role': role.trim(),
+          'phone': phone.trim(),
+        };
+        if (newPassword != null && newPassword.trim().isNotEmpty) {
+          updateData['password_hash'] = newPassword.trim();
+        }
+
+        await _client!.from('admins').update(updateData).eq('id', id);
+      } catch (e) {
+        debugPrint('Gagal update admin di Supabase: $e');
+        throw Exception('Gagal memperbarui admin di database cloud: $e');
+      }
+    }
+
+    // 2. Update di daftar lokal
+    final idx = _admins.indexWhere((a) => a.id == id);
+    if (idx != -1) {
+      final old = _admins[idx];
+      final updated = old.copyWith(
+        name: name.trim(),
+        email: cleanEmail,
+        role: role.trim(),
+        phone: phone.trim(),
+        passwordHash: (newPassword != null && newPassword.trim().isNotEmpty)
+            ? newPassword.trim()
+            : old.passwordHash,
+      );
+      _admins[idx] = updated;
+
+      if (_currentAdmin.id == id) {
+        _currentAdmin = updated;
+        await setActiveAdmin(updated, rememberLogin: true);
+      }
+    }
+
+    await _persistAdminsLocally();
+    notifyListeners();
+    return true;
+  }
+
+  /// Hapus akun admin
+  Future<bool> deleteAdmin(String id) async {
+    if (_admins.length <= 1) {
+      throw Exception('Minimal harus ada 1 akun admin aktif. Tidak dapat menghapus.');
+    }
+
+    if (_currentAdmin.id == id) {
+      throw Exception('Tidak dapat menghapus akun admin yang sedang Anda gunakan saat ini.');
+    }
+
+    // 1. Hapus dari Supabase Cloud
+    if (_client != null && _isOnline) {
+      try {
+        await _client!.from('admins').delete().eq('id', id);
+      } catch (e) {
+        debugPrint('Gagal delete admin dari Supabase: $e');
+        throw Exception('Gagal menghapus admin di database cloud: $e');
+      }
+    }
+
+    // 2. Hapus dari lokal
+    _admins.removeWhere((a) => a.id == id);
+    await _persistAdminsLocally();
+    notifyListeners();
+    return true;
   }
 
   /// Login atau Pilih Admin Aktif
@@ -217,11 +388,15 @@ class SupabaseService extends ChangeNotifier {
         DatabaseHelper.tableSettings,
         where: "key = 'admin_is_logged_in'",
       );
+      await db.delete(
+        DatabaseHelper.tableSettings,
+        where: "key = 'active_admin_id'",
+      );
     } catch (_) {}
     notifyListeners();
   }
 
-  /// Login dengan email & password
+  /// Login dengan email & password (Validasi Ketat & Aman)
   Future<bool> loginWithCredentials({
     required String email,
     required String password,
@@ -241,33 +416,31 @@ class SupabaseService extends ChangeNotifier {
         if (res.isNotEmpty) {
           final cloudAdmin = AdminModel.fromMap(res.first as Map<String, dynamic>);
           final expectedPass = res.first['password_hash']?.toString() ?? 'admin123';
-          if (password == expectedPass || password == 'admin123') {
+          if (password == expectedPass) {
             await setActiveAdmin(cloudAdmin, rememberLogin: rememberLogin);
             return true;
+          } else {
+            // Password salah di database online -> Langsung tolak!
+            return false;
           }
+        } else {
+          // Email tidak terdaftar di database online
+          return false;
         }
       } catch (e) {
         debugPrint('Direct supabase login error: $e');
       }
     }
 
-    // 2. Cek di daftar admin memori / default
+    // 2. Fallback offline: Cek di daftar admin memori / cache lokal
     final matched = _admins.where((a) => a.email.toLowerCase() == cleanEmail);
     if (matched.isNotEmpty) {
       final admin = matched.first;
-      if (password == 'admin123' || password.isNotEmpty) {
+      if (password == admin.passwordHash) {
         await setActiveAdmin(admin, rememberLogin: rememberLogin);
         return true;
       }
-    }
-
-    // 3. Fallback jika email adalah salah satu dari 4 akun admin standar
-    final defaultMatched = AdminModel.defaultAdmins.where((a) => a.email.toLowerCase() == cleanEmail);
-    if (defaultMatched.isNotEmpty) {
-      if (password == 'admin123') {
-        await setActiveAdmin(defaultMatched.first, rememberLogin: rememberLogin);
-        return true;
-      }
+      return false; // Password salah
     }
 
     return false;

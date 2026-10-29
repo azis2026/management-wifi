@@ -37,33 +37,30 @@ class AuthService {
         if (response.data is List && (response.data as List).isNotEmpty) {
           final adminJson = (response.data as List).first as Map<String, dynamic>;
           final admin = AdminModel.fromMap(adminJson);
+          final expectedPass = adminJson['password_hash']?.toString() ?? 'admin123';
+          if (password == expectedPass) {
+            return AuthResponse(
+              success: true,
+              message: 'Login berhasil via Supabase Cloud',
+              token: 'supabase_auth_${admin.id}',
+              admin: admin,
+            );
+          } else {
+            return AuthResponse(
+              success: false,
+              message: 'Password salah. Periksa kembali password Anda.',
+            );
+          }
+        } else {
           return AuthResponse(
-            success: true,
-            message: 'Login berhasil via Supabase Cloud',
-            token: 'supabase_auth_${admin.id}',
-            admin: admin,
-          );
-        } else if (cleanEmail.contains('admin')) {
-          // Fallback matching
-          final defaultAdmin = AdminModel.defaultAdmins.firstWhere(
-            (a) => a.email.toLowerCase() == cleanEmail,
-            orElse: () => AdminModel.defaultAdmins.first,
-          );
-          return AuthResponse(
-            success: true,
-            message: 'Login berhasil',
-            token: 'supabase_auth_${defaultAdmin.id}',
-            admin: defaultAdmin,
+            success: false,
+            message: 'Akun admin dengan email "$cleanEmail" tidak ditemukan.',
           );
         }
       } catch (e) {
-        // Fallback default admin
-        final defaultAdmin = AdminModel.defaultAdmins.first;
         return AuthResponse(
-          success: true,
-          message: 'Login berhasil',
-          token: 'supabase_auth_${defaultAdmin.id}',
-          admin: defaultAdmin,
+          success: false,
+          message: 'Gagal menghubungi server autentikasi: $e',
         );
       }
     }

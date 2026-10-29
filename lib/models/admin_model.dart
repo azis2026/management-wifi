@@ -5,6 +5,7 @@ class AdminModel {
   final String role; // 'Super Admin', 'Admin Keuangan', 'Admin Teknisi', 'Admin Layanan'
   final String phone;
   final String? avatarUrl;
+  final String passwordHash;
   final bool isActive;
   final String createdAt;
 
@@ -15,6 +16,7 @@ class AdminModel {
     required this.role,
     this.phone = '',
     this.avatarUrl,
+    this.passwordHash = 'admin123',
     this.isActive = true,
     required this.createdAt,
   });
@@ -27,6 +29,7 @@ class AdminModel {
       'role': role,
       'phone': phone,
       'avatar_url': avatarUrl,
+      'password_hash': passwordHash,
       'is_active': isActive ? 1 : 0,
       'created_at': createdAt,
     };
@@ -40,6 +43,7 @@ class AdminModel {
       role: map['role'] as String? ?? 'Admin',
       phone: map['phone'] as String? ?? '',
       avatarUrl: map['avatar_url'] as String?,
+      passwordHash: map['password_hash'] as String? ?? 'admin123',
       isActive: map['is_active'] == 1 || map['is_active'] == true,
       createdAt: map['created_at'] as String? ?? DateTime.now().toIso8601String(),
     );
@@ -52,6 +56,7 @@ class AdminModel {
     String? role,
     String? phone,
     String? avatarUrl,
+    String? passwordHash,
     bool? isActive,
     String? createdAt,
   }) {
@@ -62,6 +67,7 @@ class AdminModel {
       role: role ?? this.role,
       phone: phone ?? this.phone,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      passwordHash: passwordHash ?? this.passwordHash,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
     );
